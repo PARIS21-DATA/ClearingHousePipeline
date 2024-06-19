@@ -1,0 +1,309 @@
+---
+title: "C1 Wrangling and create maker files"
+output: html_notebook
+---
+```{r setup, include=FALSE}
+# Clear the environment
+rm(list = ls())
+gc()
+# Load required packages to set wd
+if (!require("rstudioapi")) install.packages("rstudioapi")
+library(rstudioapi)
+library(knitr)
+
+# Get the directory of the active document and then move to the parent directory
+parent_dir <- dirname(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Set the root directory for all chunks to the parent directory
+opts_knit$set(root.dir = parent_dir)
+```
+
+```{r}
+# Verify the working directory in subsequent chunks
+getwd()
+```
+
+```{r}
+source("./Functions/A0 Package Setup.R")
+gc()
+```
+
+
+```{r}
+# Function to print time difference
+print_time_diff <- function(start_time) {
+  print(difftime(Sys.time(), start_time, units = "sec"))
+}
+```
+
+
+```{r}
+# Set parameters
+source <- "crs"
+skip_icov <- TRUE
+job_specific_suffix <- "_full_"
+current_year <- year(Sys.Date())
+
+# File paths
+path_input_crs <- paste0("./Data/intermediate/crs01_1", job_specific_suffix, current_year, ".feather")
+path_output_wrangling <- paste0("./Data/intermediate/crs02.1 data wrangling", job_specific_suffix, current_year, ".feather")
+path_output_sdg_markers <- paste0("./data/intermediate/02.2a sdg markers ", current_year, ".feather")
+path_output_unique_goals <- paste0("./data/intermediate/02.2b sdg markers UNIQUE goals ", current_year, ".feather")
+path_output_additional_gender_markers <- paste0("./Data/intermediate/crs02.3 additional gender markers", job_specific_suffix, current_year, ".feather")
+path_output_db_ref_process_id <- paste0("./Data/intermediate/crs02.4 db_ref and process id list", job_specific_suffix, current_year, ".feather")
+path_finance_type <- "./data/auxiliary/finance types 2023.xlsx"
+
+start <- Sys.time()
+```
+
+```{r}
+# Load data files
+print("Loading document:")
+df_crs_raw <- read_feather(path_input_crs)
+print_time_diff(start)
+
+df_finance_t <- read_xlsx(path_finance_type)
+```
+
+```{r}
+#1. Select the required columns
+df_crs <- df_crs_raw %>% 
+  select(
+    process_id, 
+    year, 
+    finance_t, 
+    bi_multi, 
+    commitmentdate
+  )
+```
+
+
+```{r}
+# ---------------
+# 2. Add markers and perform data wrangling for analysis
+# ---------------
+
+# 2.1 Finance type
+df_finance_t <- df_finance_t %>%
+  rename(
+    finance_t = sub_category_code, 
+    finance_t_father_code = category_code, 
+    finance_t_name_original = sub_category, 
+    finance_t_name_father = category
+  )
+
+df_crs <- df_crs %>% 
+  left_join(df_finance_t, by = "finance_t")
+
+rm(df_finance_t)
+
+# 2.2 Donor type
+df_crs <- df_crs %>%
+  mutate(
+    donor_type = case_when(
+      bi_multi == 4 ~ "Multilateral", 
+      bi_multi == 6 ~ "Private", 
+      TRUE ~ "Bilateral"
+    )
+  )
+
+# 2.3 Numeric years
+df_crs <- df_crs %>%
+  mutate(year = as.numeric(year)) %>%
+  filter(!is.na(year))
+
+# 2.4 Commitment years
+df_crs_commitment_year <- df_crs %>%
+  select(commitmentdate) %>%
+  distinct() %>%
+  mutate(
+    commitment_year = substr(commitmentdate, 1, 4) %>% as.numeric()
+  ) %>%
+  distinct()
+
+df_crs <- df_crs %>%
+  left_join(df_crs_commitment_year, by = "commitmentdate") %>%
+  mutate(commitment_year = ifelse(is.na(commitment_year), year, commitment_year))
+
+df_crs %>%
+  filter(is.na(commitment_year))
+
+rm(df_crs_commitment_year)
+
+# 2.5 Finance type simplified names
+df_financing_type <- tibble(
+  finance_t = c(110, 421, 520), 
+  finance_t_name_simplified = c("Standard grant", "Standard loan", "Shares in collective investment vehicles")
+)
+
+df_crs <- df_crs %>%
+  left_join(df_financing_type, by = "finance_t") %>%
+  mutate(
+    finance_t_name_simplified = ifelse(is.na(finance_t_name_simplified), "", finance_t_name_simplified),
+    finance_t_name = finance_t_name_simplified
+  )
+
+rm(df_financing_type)
+
+# Save the wrangled data
+write_feather(df_crs, path_output_wrangling)
+print_time_diff(start)
+
+beep()
+```
+```{r}
+# ---------------
+# 3. SDG Markers Processing
+# ---------------
+
+# Reload data for SDG processing
+df_crs_raw <- read_feather(path_input_crs)
+print_time_diff(start)
+
+# 3.1 Select and filter required columns for SDG markers
+df_crs <- df_crs_raw %>% 
+  select(db_ref, sdgfocus)
+
+df_sdgs <- df_crs %>% 
+  filter(!is.na(sdgfocus), sdgfocus != "", sdgfocus != "0") %>% 
+  distinct()
+
+# 3.2 Expand SDG focus
+ls_sdgs <- sapply(df_sdgs$sdgfocus, function(x) str_split(x, ";"))
+vec_sdgs <- unlist(ls_sdgs)
+vec_db_ref <- rep(df_sdgs$db_ref, sapply(ls_sdgs, length))
+
+df_sdgs_extended <- tibble(db_ref = vec_db_ref, sdgfocus = vec_sdgs)
+
+rm(ls_sdgs, vec_sdgs, vec_db_ref)
+
+df_sdgs_extended <- df_sdgs_extended %>% 
+  mutate(sdg_goal = str_extract(sdgfocus, "^\\d+") %>% as.numeric())
+
+df_sdgs_extended$sdg_goal %>% table
+
+# Save SDG markers data
+df_sdgs_extended %>% write_feather(path_output_sdg_markers)
+
+# 3.3 Unique SDG goals per project
+tmp_df_goal_per_proj <- df_sdgs_extended %>% 
+  select(db_ref, sdg_goal) %>% 
+  distinct()
+
+df_unique_goal <- tmp_df_goal_per_proj %>% 
+  group_by(db_ref) %>% 
+  summarise(cnt = n()) %>% 
+  filter(cnt == 1) %>% 
+  select(db_ref) %>% 
+  inner_join(tmp_df_goal_per_proj, by = "db_ref")
+
+rm(tmp_df_goal_per_proj)
+
+df_unique_goal %>% write_feather(path_output_unique_goals)
+print_time_diff(start)
+beep()
+```
+
+```{r}
+# ---------------
+# 4. Additional Gender Markers Processing
+# ---------------
+#  Select and filter required columns
+df_crs <- df_crs_raw %>% 
+  select(db_ref
+         , process_id
+         , channelcode
+         , agencycode
+         , donorcode
+  ) 
+
+# Load the additional data file for SDG markers
+df_sdg <- read_feather(path_output_unique_goals)
+df_sdg <- df_sdg %>% 
+  filter(sdg_goal == 5) %>% 
+  select(db_ref) %>% 
+  mutate(gen_sdg = TRUE)
+
+# Load and process gender filters
+df_gender_agencies <- read.xlsx("data/auxiliary/gender filters.xlsx", sheet = 2)
+names(df_gender_agencies) <- tolower(names(df_gender_agencies))
+df_gender_channels <- read.xlsx("data/auxiliary/gender filters.xlsx", sheet = 1)
+names(df_gender_channels) <- tolower(names(df_gender_channels))
+
+df_gender_agencies <- df_gender_agencies %>% 
+  filter(gender == 1) %>% 
+  select(donorcode, agencycode) %>% 
+  mutate(gen_agency = TRUE)
+
+df_gender_channels <- df_gender_channels %>% 
+  filter(gender == 1) %>% 
+  select(channelcode = channel.id) %>% 
+  mutate(gen_channel = TRUE)
+
+# Merge the gender filters and SDG markers with the main data
+df_crs <- df_crs %>% 
+  left_join(df_gender_agencies, by = c("donorcode", "agencycode")) %>% 
+  left_join(df_gender_channels, by = "channelcode") %>% 
+  left_join(df_sdg, by = "db_ref")
+
+rm(df_gender_agencies, df_gender_channels, df_sdg)
+
+# Prepare and save the additional gender markers data
+df_crs_gender <- df_crs %>% 
+  select(-channelcode, -agencycode, -donorcode, -db_ref) %>% 
+  mutate(across(gen_agency:gen_sdg, ~ replace_na(.x, FALSE)))
+
+df_crs_gender %>% write_feather(path_output_additional_gender_markers)
+print_time_diff(start)
+beep()
+```
+
+```{r}
+# ---------------
+# 5. Save db_ref and process_id
+# ---------------
+path_input_crs_full <- paste0("./Data/intermediate/crs01_1", job_specific_suffix, year(Sys.Date()), ".feather")
+df_crs_raw <- read_feather(path_input_crs_full)
+df_crs_raw <- df_crs_raw %>% 
+  select(process_id, db_ref) 
+
+write_feather(df_crs_raw, path_output_db_ref_process_id)
+print_time_diff(start)
+beep()
+```
+
+```{r}
+# ---------------
+# 6. Merge and Output Final Dataset
+# ---------------
+
+# Define paths for input and output files
+path_input_wrangling <- paste0("./Data/intermediate/crs02.1 data wrangling", job_specific_suffix, current_year, ".feather")
+path_input_gender <- paste0("./Data/intermediate/crs02.3 additional gender markers", job_specific_suffix, current_year, ".feather")
+path_output_final <- paste0("./Data/intermediate/crs02 new columns", job_specific_suffix, current_year, ".feather")
+path_input_markers <- paste0("./Data/intermediate/crs02.0", job_specific_suffix,year(Sys.Date()), ".feather")
+# Load the data files
+print("Loading document:")
+df_crs_marker <- read_feather(path_input_markers)
+df_crs_wrangling <- read_feather(path_input_wrangling)
+df_crs_gender <- read_feather(path_input_gender)
+print_time_diff(start)
+
+# Merge the datasets
+df_crs <- df_crs_marker %>% 
+  inner_join(df_crs_wrangling, by = intersect(names(df_crs_marker), names(df_crs_wrangling))) %>% 
+  inner_join(df_crs_gender, by = intersect(names(df_crs_marker), names(df_crs_gender)))
+
+
+# Save the final merged dataset
+write_feather(df_crs, path_output_final)
+print_time_diff(start)
+
+beep(2)
+
+```
+
+```{r}
+df_crsr<-read_feather(path_input_markers)
+```
+
