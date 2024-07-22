@@ -58,3 +58,15 @@ gc()
 print_time_diff <- function(start_time) {
   print(difftime(Sys.time(), start_time, units = "sec"))
 }
+
+
+remove_except <- function(keep_vars){
+  # List all variables in the environment
+  all_vars <- ls()
+  
+  # Variables to remove (all variables except those in keep_vars)
+  remove_vars <- setdiff(all_vars, keep_vars)
+  
+  # Remove the specified variables
+  rm(list = remove_vars)
+}

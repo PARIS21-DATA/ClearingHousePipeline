@@ -68,6 +68,7 @@ DTM <- function(x, Min=NULL, Max=NULL, dict=NULL){
 }
 
 
+
 ## --------------
 # Function 4
 ## --------------

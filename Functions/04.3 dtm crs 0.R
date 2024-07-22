@@ -1,4 +1,5 @@
-rm(list = ls())
+keep_vars <- c("Min.1", "Min.0", "power_odds","cutoff_odds","cutoff_freq1","subfolder","keep_vars","remove_except", "lambda")
+remove_except(keep_vars)
 source("./functions/A0 Package Setup.R")
 pkgload:::unload("tidytext")
 source("./functions/00.2 functions_thilo.R")
@@ -9,7 +10,7 @@ if(job == "gen") job_specific_suffix <- "_gen_full_"
 load("data/intermediate/crs04_lang_utf8_full.rdata")
 
 
-crs_path_dict <- paste0("./Data/intermediate/crs04.2_mydict_", lang, job_specific_suffix, year(Sys.Date()), ".rds")
+crs_path_dict <- paste0("./Data/intermediate/",subfolder,"/crs04.2_mydict_", lang, job_specific_suffix, year(Sys.Date()), ".rds")
 crs_path_corpus <- paste0("./Data/intermediate/crs04.1_crs0_", lang, job_specific_suffix, year(Sys.Date()), ".rds")
 crs_path_new_nwords <- paste0("./Data/intermediate/crs04.3_nwords0_", lang, job_specific_suffix, year(Sys.Date()), ".rds")
 crs_path_new_dtm <- paste0("./Data/intermediate/crs04.3_dtm_crs_0_", lang, job_specific_suffix, year(Sys.Date()), ".rds")
