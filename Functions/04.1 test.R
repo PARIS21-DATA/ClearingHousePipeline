@@ -1,4 +1,4 @@
-keep_vars <- c("Min.1", "Min.0", "power_odds","cutoff_odds","cutoff_freq1","subfolder","keep_vars","remove_except", "lambda")
+keep_vars <- c("Min.1", "Min.0", "power_odds","cutoff_odds","cutoff_freq1","subfolder","keep_vars","remove_except")
 remove_except(keep_vars)
 source("./functions/A0 Package Setup.R")
 source("./functions/00.2 functions_thilo.R")
@@ -41,7 +41,8 @@ start <- Sys.time()
 corpus_crs_1 <- preprocessingV(df_crs_1$description, language=language)
 print_time_diff(start)
 
-dtm_crs_1 <- DTM(corpus_crs_1, Min=Min.1, Max=1)
+# dtm_crs_1 <- DTM(corpus_crs_1, Min=Min.1, Max=1)
+dtm_crs_1 <- NA
 print_time_diff(start)
 corpus_crs_1_simpleDTM <- DTM(corpus_crs_1)
 print_time_diff(start)
@@ -63,7 +64,7 @@ eligible_words_in_doc_1 <- corpus_crs_1_simpleDTM %>%
   group_by(term) %>% 
   summarise(cnt = n()) %>%
   arrange(desc(cnt)) %>%
-  filter(cnt > (length(corpus_crs_1)/100)*lambda) %>% # filter by frequency
+  filter(cnt > (length(corpus_crs_1)/100)) %>% # filter by frequency
   .$term
 print_time_diff(start)
 
