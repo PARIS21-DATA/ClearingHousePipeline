@@ -1,0 +1,166 @@
+---
+title: "F0 Manual checking "
+output: html_notebook
+---
+```{r setup, include=FALSE}
+# Clear the environment
+rm(list = ls())
+gc()
+# Load required packages to set wd
+if (!require("rstudioapi")) install.packages("rstudioapi")
+library(rstudioapi)
+library(knitr)
+
+# Get the directory of the active document and then move to the parent directory
+parent_dir <- dirname(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Set the root directory for all chunks to the parent directory
+opts_knit$set(root.dir = parent_dir)
+```
+
+```{r}
+# Verify the working directory in subsequent chunks
+getwd()
+```
+
+
+```{r}
+# Function to print time difference
+print_time_diff <- function(start_time) {
+  print(difftime(Sys.time(), start_time, units = "sec"))
+}
+```
+
+```{r}
+source("./Functions/A0 Package Setup.R")
+gc()
+```
+```{r}
+# Install packages if not already installed
+if (!requireNamespace("dplyr", quietly = TRUE)) {
+  install.packages("dplyr")
+}
+if (!requireNamespace("writexl", quietly = TRUE)) {
+  install.packages("writexl")
+}
+if (!requireNamespace("readxl", quietly = TRUE)) {
+  install.packages("readxl")
+}
+
+# Load libraries
+library(dplyr)
+library(writexl)
+library(readxl)
+
+```
+
+
+
+```{r}
+crs_path_raw <- "./Data/intermediate/crs03_full_2024.feather"
+#df_original<-read_feather(crs_path_raw)
+df_original <- arrow::read_feather(crs_path_raw)
+```
+
+
+```{r}
+extractresult<- function(folder_path) {
+  result<- paste0(
+  folder_path,
+  "/crs04.4_positive_id_en", 
+  "_full_", 
+  "2024", 
+  ".rds"
+)
+  positive_id<- readRDS(result)
+  # Specify the columns
+  columns_to_check <- c("process_id", 
+                        "desc_2mine_id",  
+                        "projecttitle", 
+                        "longdescription", 
+                        "language_desc" 
+                        )
+  # Filter rows where the ID column is in positive_id
+  filtered_data <- df_original[df_original$desc_2mine_id %in% positive_id, columns_to_check]
+  # Drop duplicates based on desc_2mine_id
+  filtered_data <- filtered_data[!duplicated(filtered_data$desc_2mine_id), ]
+  #export all filtered data
+  write_xlsx(filtered_data, path = paste0(folder_path,
+                                         "/All_filtered_data.xlsx"))
+  # Check if the filtered data has at least 20 rows
+  if (nrow(filtered_data) >= 20) {
+    # Randomly sample 20 rows from the filtered data
+    sampled_data <- filtered_data %>% sample_n(size = 20)
+    
+    # Write the sampled data to an Excel file
+    write_xlsx(sampled_data, path = paste0(folder_path, "/20sampled_data.xlsx"))
+    
+    # Extract the first 20 rows from the filtered data
+    first_20_data <- head(filtered_data, 20)
+    
+    # Write the first 20 rows data to an Excel file
+    write_xlsx(first_20_data, path = paste0(folder_path, "/first_20_data.xlsx"))
+  } else {
+    message("The dataset has less than 20 rows, skipping the sampling process.")
+}
+
+}
+
+```
+
+
+```{r}
+# Initialize the initial directory
+initial_directory <- "./Data/intermediate"
+
+# Initialize the dataframe to store records
+records <- data.frame(foldername = character(), row_number = integer(), stringsAsFactors = FALSE)
+
+# Get all folders starting with "results"
+folders <- list.dirs(path = initial_directory, full.names = TRUE, recursive = FALSE)
+result_folders <- folders[grepl("^result", basename(folders))]
+```
+
+
+
+```{r}
+# Iterate through each folder
+for (folder in result_folders) {
+  # Check if crs04.4_positive_id_en_full_2024.rds exists
+  rds_file <- paste0(folder,"/crs04.4_positive_id_en_full_2024.rds")
+  if (file.exists(rds_file)) {
+    # Check for the existence of the three xlsx files
+    all_filtered_data <- paste0(folder,"/All_filtered_data.xlsx")
+    sampled_data <- paste0(folder,"/20sampled_data.xlsx")
+    first_data <- paste0(folder,"/first_20_data.xlsx")
+    
+    if (!file.exists(all_filtered_data) || !file.exists(sampled_data) || !file.exists(first_data)) {
+      # Run the custom function if any of the files do not exist
+      extractresult(folder)
+      print("result extratced from:")
+      print(folder)
+    }
+    
+    # Collect the number of rows (excluding header) of All_filtered_data.xlsx
+    if (file.exists(all_filtered_data)) {
+      df <- read_excel(all_filtered_data)
+      num_rows <- nrow(df)
+      
+      # Record the folder name and row number
+      records <- rbind(records, data.frame(foldername = basename(folder), row_number = num_rows))
+    }
+  }
+}
+
+```
+
+```{r}
+# Export the records dataframe into the initial directory as an xlsx file
+output_file <- file.path(initial_directory, "records-0.xlsx")
+write_xlsx(records, output_file)
+
+# Print the records for confirmation
+print(records)
+```
+
+

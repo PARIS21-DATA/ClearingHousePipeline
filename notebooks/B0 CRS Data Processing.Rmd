@@ -1,0 +1,139 @@
+---
+title: "CRS Data Processing"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+# Clear the environment
+rm(list = ls())
+gc()
+# Load required packages to set wd
+if (!require("rstudioapi")) install.packages("rstudioapi")
+library(rstudioapi)
+library(knitr)
+
+# Get the directory of the active document and then move to the parent directory
+parent_dir <- dirname(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Set the root directory for all chunks to the parent directory
+opts_knit$set(root.dir = parent_dir)
+```
+
+```{r}
+# Verify the working directory in subsequent chunks
+getwd()
+```
+
+```{r}
+source("./functions/A0 Package Setup.R")
+```
+
+
+```{r}
+# Function to Print Time Difference
+print_time_diff <- function(start_time) {
+  start_time <- as.POSIXct(start_time)
+  time_diff <- difftime(Sys.time(), start_time, units = "secs")
+  print(time_diff)
+}
+
+```
+
+```{r}
+#Set Directories
+crs_zip_folder <- "./Data/Raw/CRS/zip"
+crs_txt_folder <- "./Data/Raw/CRS/txt"
+
+```
+
+
+
+```{r}
+start <- Sys.time()
+# Get list of ZIP files
+crs_zip_files <- list.files(crs_zip_folder, pattern = "\\.zip$", full.names = TRUE)
+
+# Get base names of ZIP files (without extensions)
+zip_base_names <- tools::file_path_sans_ext(basename(crs_zip_files))
+
+# Get list of existing TXT files
+crs_txt_files <- list.files(crs_txt_folder, pattern = "\\.txt$", full.names = TRUE)
+
+# Get base names of TXT files (without extensions)
+txt_base_names <- tools::file_path_sans_ext(basename(crs_txt_files))
+
+# Identify ZIP files that do not have corresponding TXT files
+missing_zip_files <- crs_zip_files[!zip_base_names %in% txt_base_names]
+
+# Unzip the identified ZIP files into the TXT folder
+if (length(missing_zip_files) > 0) {
+  lapply(missing_zip_files, unzip, overwrite = TRUE, exdir = crs_txt_folder)
+}
+
+rm(crs_zip_folder, crs_zip_files)
+print_time_diff(start)
+
+```
+
+
+
+```{r}
+# Read txt files
+start <- Sys.time()
+
+# Function to read CSV with specified encoding
+fun_read_csv <- function(var, enc) {
+  start_mini <- Sys.time()
+  x <- read.csv(var, sep = "|", header = TRUE, stringsAsFactors = FALSE, fileEncoding = enc)
+  print(var)
+  print(paste0(nrow(x), " rows"))
+  print_time_diff(start_mini)
+  return(x)
+}
+
+# List of TXT files
+crs_txt_files <- list.files(crs_txt_folder, pattern = "\\.txt$", full.names = TRUE)
+
+# Read files using UTF-8 encoding
+list_crs <- lapply(crs_txt_files, FUN = fun_read_csv, enc = "UTF-8")
+
+print_time_diff(start)
+
+```
+
+```{r}
+#Combine Data Frames and Basic Modifications
+start <- Sys.time()
+
+# Combine all data frames into one
+df_crs <- rbindlist(list_crs, fill = TRUE)
+
+# Add source and process_id columns
+df_crs <- df_crs %>%
+  mutate(source = "crs") %>%
+  mutate(process_id = row_number())
+
+# Convert column names to lowercase
+names(df_crs) <- tolower(names(df_crs))
+
+print_time_diff(start)
+
+```
+
+```{r}
+#Save Data to Feather Format
+start <- Sys.time()
+
+# Write combined data frame to Feather format
+write_feather(df_crs, paste0("./Data/Raw/CRS/crs_full_", year(Sys.Date()), ".feather"))
+write_feather(df_crs, paste0("./Data/Raw/CRS/crs_full_", Sys.Date(), ".feather"))
+
+print_time_diff(start)
+beep()
+```
+```{r}
+#Cleanup
+rm(list = ls())
+gc()
+```
+

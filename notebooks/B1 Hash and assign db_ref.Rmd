@@ -1,0 +1,158 @@
+---
+title: "B1 Hash and assign db_ref"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+# Clear the environment
+rm(list = ls())
+gc()
+# Load required packages to set wd
+if (!require("rstudioapi")) install.packages("rstudioapi")
+library(rstudioapi)
+library(knitr)
+
+# Get the directory of the active document and then move to the parent directory
+parent_dir <- dirname(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Set the root directory for all chunks to the parent directory
+opts_knit$set(root.dir = parent_dir)
+```
+
+```{r}
+# Verify the working directory in subsequent chunks
+getwd()
+```
+
+```{r}
+
+# Load initial setup file
+source("./Functions/A0 Package Setup.R")
+
+# Function to print time difference
+print_time_diff <- function(start_time) {
+  difftime(Sys.time(), start_time, units = "secs") %>% print
+}
+```
+
+
+```{r}
+
+# Define paths for input, intermediate, and output files
+job_specific_suffix <- "_full_"
+current_year <- year(Sys.Date())
+path_input <- paste0("./Data/Raw/CRS/crs", job_specific_suffix, current_year, ".feather")
+path_intermediate <- paste0("./Data/Intermediate/crs", "01_1a", job_specific_suffix, current_year, ".feather")
+path_output <- paste0("./Data/Intermediate/crs", "01_1", job_specific_suffix, current_year, ".feather")
+
+start <- Sys.time()
+
+```
+
+```{r}
+# Load the feather file containing raw data
+df_crs_raw <- read_feather(path_input)
+
+# Print time taken for this step
+print_time_diff(start)
+beep()
+
+```
+
+```{r}
+start <- Sys.time()
+
+# Select relevant columns and create a text identifier
+df_crs <- df_crs_raw %>%
+  select(
+    process_id,
+    projectnumber,
+    crsid,
+    year,
+    usd_commitment,
+    purposecode,
+    usd_disbursement,
+    recipientcode,
+    finance_t
+  ) %>%
+  mutate(text_identifier = paste(projectnumber, crsid, year, purposecode, usd_disbursement, recipientcode, sep = "___"))
+
+# Print distinct count of text identifiers
+df_crs %>% select(text_identifier) %>% distinct %>% nrow
+
+# Free up memory
+rm(df_crs_raw)
+gc()
+print_time_diff(start)
+
+```
+
+```{r}
+#Create Hash IDs
+start <- Sys.time()
+
+# Create hash values for text_identifier in chunks
+chunk_size <- 10000
+tmp_n_subsets <- ceiling(nrow(df_crs) / chunk_size)
+df_crs <- df_crs %>%
+  mutate(chunk_id = ceiling(row_number() / chunk_size))
+
+df_crs <- df_crs %>%
+  group_by(chunk_id) %>%
+  mutate(hash_id = map_chr(text_identifier, ~ digest(.x, algo = "md5"))) %>%
+  ungroup()
+
+print_time_diff(start)
+beep()
+
+```
+
+```{r}
+#Handle Duplicates
+# Create db_ref with duplicates handled
+df_crs <- df_crs %>%
+  mutate(
+    db_ref = paste0("df_crs_", hash_id),
+    db_ref = ifelse(duplicated(hash_id), paste0(db_ref, "_dup_", process_id), db_ref),
+    db_ref = as.factor(db_ref)
+  )
+
+# Merge with raw data to include all columns
+df_crs <- df_crs %>%
+  select(db_ref, process_id, hash_id) %>%
+  inner_join(read_feather(path_input))
+
+# Clean up
+gc()
+print_time_diff(start)
+
+```
+
+
+```{r}
+#Check Uniqueness of Project Identifiers
+# Print unique project identifiers and check for duplicates
+print(paste0("Number of unique project identifiers: ", df_crs$db_ref %>% unique %>% length))
+print(paste0("Number of rows of CRS data set: ", nrow(df_crs)))
+print(paste0("Number of duplicated project identifiers: ", sum(duplicated(df_crs$db_ref))))
+
+# Print identifiers that are duplicated
+print("Identifiers that are duplicated:")
+df_crs$db_ref[which(duplicated(df_crs$db_ref))] %>% print 
+
+# Print subset of CRS data with identical project identifiers
+print("Subset of CRS with identical project identifiers: ")
+dups <- c(which(duplicated(df_crs$db_ref)), which(rev(duplicated(rev(df_crs$db_ref)))))
+df_crs[dups, ] %>% arrange(db_ref) %>% print
+
+```
+
+
+```{r}
+# Save the cleaned dataframe to a feather file
+write_feather(df_crs, path_output)
+print_time_diff(start)
+beep(2)
+
+```
+

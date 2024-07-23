@@ -56,69 +56,147 @@ df_lang <- data.frame(
 write_rds(df_lang, file = "data/intermediate/crs04_df_lang_utf8_full.rds")
 ```
 
+
 ```{r}
-#process each language by iterationg over the rows of df_lang, saving the relevant information, and running the analysis scripts
-df_lang <- read_rds("data/intermediate/crs04_df_lang_utf8_full.rds")
+run_algorithm <- function(Min.1, Min.0, power_odds,subfolder, lambda) {
+  #avoid missing values through the process
+  keep_vars <- c("Min.1", "Min.0", "power_odds","cutoff_odds","cutoff_freq1","subfolder","keep_vars", "lambda")
+  
+  # Define the output path to the new directory
+  new_directory <- paste0("./Data/intermediate/",subfolder)
+  
+  # Check if the directory exists, and create it if it doesn't
+  if (!dir.exists(new_directory)) {
+    dir.create(new_directory, recursive = TRUE)
+  }
+  
+  #process each language by iterationg over the rows of df_lang, saving the relevant information, and running the analysis scripts
+  df_lang <- read_rds("data/intermediate/crs04_df_lang_utf8_full.rds")
+  for (i in 1:nrow(df_lang)) {
+    # Save sequence number
+    write_rds(i, file = "data/Intermediate/crs04_i_utf8_full.rds")
+    df_lang <- read_rds("data/intermediate/crs04_df_lang_utf8_full.rds")
+    # Save language 
+    lang <- df_lang$lang[i]
+    language <- df_lang$language[i]
+    print(lang)
+    save(lang, language, file = "data/intermediate/crs04_lang_utf8_full.rdata")
+    
+    # Running the analysis
+    source("./functions/04.0 separate data frame into two.R")
+    print(0)
+    Sys.sleep(10)  # pauses for 10 seconds
+    source("./functions/04.1 preprocess and create dict.R")
+    print(1)
+    Sys.sleep(10)  # pauses for 10 seconds
+    source("./functions/04.2 create dict.R")
+    print(2)
+    Sys.sleep(10)  # pauses for 10 seconds
+    source("./functions/04.3 dtm crs 0.R")
+    print(3)
+    Sys.sleep(10)  # pauses for 10 seconds
+    source("./functions/04.4 identify projects.R")
+    print(4)
+    Sys.sleep(10)  # pauses for 10 seconds
+    
+    # Extracting the sequence number
+    i <- read_rds("data/Intermediate/crs04_i_utf8_full.rds")
+    print(i)
+  }
+  
+  beep(3)
+  
+  #perform final processing steps based on the job type and aggregate the results
+  df_lang <- read_rds("data/intermediate/crs04_df_lang_utf8_full.rds")
+  job <- read_rds("data/Intermediate/crs04_job_utf8_full.rds")
+  job_specific_suffix <- ifelse(job == "gen", "_gen_full_", "_full_")
+  
+  list_path_ids <- paste0(
+    "./Data/intermediate/",subfolder,"/crs04.4_positive_id_", 
+    c(df_lang$lang, "en"), 
+    job_specific_suffix, 
+    year(Sys.Date()), 
+    ".rds"
+  ) %>% unique()
+  
+  list_id <- list_path_ids %>%
+    map(read_rds) %>%
+    reduce(c) %>%
+    unique()
+  
+  crs_path_new <- paste0(
+    "./Data/intermediate/",subfolder,"/crs04_positive_id", 
+    job_specific_suffix, 
+    year(Sys.Date()), 
+    ".rds"
+  )
+  
+  write_rds(list_id, file = crs_path_new)
+  beep(3)
+}
+```
+
+```{r}
+# Define the possible values for each parameter
+#Min.1_values <- c(0.05, 0.1, 0.15, 0.20,0.25,0.30,0.35,0.40,0.45,0.50)
+Min.1_values <- c(0.1)
+Min.0_values <- c(1)
+power_odds_values <- c(
+  #-1, 
+  -1.5
+  #-2,
+  #-2.5
+  )
+lambda_values <- c(
+  0.1
+  #0.2, 
+  #0.5, 
+  #1, 
+  #1.5, 
+  #2
+  )
+
+# Create all combinations of parameters
+parameter_combinations <- expand.grid(Min.1 = Min.1_values, 
+                                      Min.0 = Min.0_values, 
+                                      power_odds = power_odds_values, 
+                                      lambda=lambda_values)
 
 
-#use seq_alone here to avoid error when iterate
-walk(seq_along(df_lang), function(i) {
-  # Save sequence number
-  write_rds(i, file = "data/Intermediate/crs04_i_utf8_full.rds")
-  
-  # Save language 
-  lang <- df_lang$lang[i]
-  language <- df_lang$language[i]
-  print(lang)
-  save(lang, language, file = "data/intermediate/crs04_lang_utf8_full.rdata")
-  
-  # Running the analysis
-  source("./functions/04.0 separate data frame into two.R")
-  print(0)
-  source("./functions/04.1 preprocess and create dict.R")
-  print(1)
-  source("./functions/04.2 create dict.R")
-  print(2)
-  source("./functions/04.3 dtm crs 0.R")
-  print(3)
-  source("./functions/04.4 identify projects.R")
-  print(4)
-  
-  # Extracting the sequence number
-  i <- read_rds("data/Intermediate/crs04_i_utf8_full.rds")
-  print(i)
-})
-
-beep(3)
 ```
 
 
 ```{r}
-#perform final processing steps based on the job type and aggregate the results
-df_lang <- read_rds("data/intermediate/crs04_df_lang_utf8_full.rds")
-job <- read_rds("data/Intermediate/crs04_job_utf8_full.rds")
-job_specific_suffix <- ifelse(job == "gen", "_gen_full_", "_full_")
-
-list_path_ids <- paste0(
-  "./Data/intermediate/crs04.4_positive_id_", 
-  c(df_lang$lang, "en"), 
-  job_specific_suffix, 
-  year(Sys.Date()), 
-  ".rds"
-) %>% unique()
-
-list_id <- list_path_ids %>%
-  map(read_rds) %>%
-  reduce(c) %>%
-  unique()
-
-crs_path_new <- paste0(
-  "./Data/intermediate/crs04_positive_id", 
-  job_specific_suffix, 
-  year(Sys.Date()), 
-  ".rds"
-)
-
-write_rds(list_id, file = crs_path_new)
+# Iterate through all parameter combinations and run the algorithm
+apply(parameter_combinations, 1, function(params) {
+  Min.1 <- params["Min.1"]
+  Min.0 <- params["Min.0"]
+  power_odds <- params["power_odds"]
+  lambda <- params["lambda"]
+  subfolder <- paste0("result-", lambda, "-", power_odds,"lambda_power_odds", "-","decent" ,"-","work")
+  cutoff_odds <- 10^(power_odds) # Cutoff for odds ratio, in 4.2
+  
+  # Assign variables to the global environment
+  assign("Min.1", Min.1, envir = .GlobalEnv)
+  assign("Min.0", Min.0, envir = .GlobalEnv)
+  assign("power_odds", power_odds, envir = .GlobalEnv)
+  assign("subfolder", subfolder, envir = .GlobalEnv)
+  assign("cutoff_odds", cutoff_odds, envir = .GlobalEnv)
+  assign("lambda", lambda, envir = .GlobalEnv)
+  
+  keep_vars <- c(
+                "Min.1", 
+                "Min.0", 
+                "power_odds",
+                "cutoff_odds",
+                "cutoff_freq1",
+                "subfolder",
+                "lambda",
+                "keep_vars")
+  
+  run_algorithm(Min.1, Min.0, power_odds,subfolder,lambda)
+  Sys.sleep(10)
+  print("finished 1 trial")
+})
 ```
 

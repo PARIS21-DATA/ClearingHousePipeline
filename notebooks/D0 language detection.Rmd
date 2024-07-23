@@ -1,0 +1,149 @@
+---
+title: "D0 language detection"
+output: html_notebook
+---
+```{r setup, include=FALSE}
+# Clear the environment
+rm(list = ls())
+gc()
+# Load required packages to set wd
+if (!require("rstudioapi")) install.packages("rstudioapi")
+library(rstudioapi)
+library(knitr)
+
+# Get the directory of the active document and then move to the parent directory
+parent_dir <- dirname(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Set the root directory for all chunks to the parent directory
+opts_knit$set(root.dir = parent_dir)
+```
+
+```{r}
+# Verify the working directory in subsequent chunks
+getwd()
+```
+
+```{r}
+source("./Functions/A0 Package Setup.R")
+gc()
+```
+
+
+
+```{r}
+# Function to print time difference
+print_time_diff <- function(start_time) {
+  print(difftime(Sys.time(), start_time, units = "sec"))
+}
+```
+
+
+```{r}
+
+source("./functions/00.1a functions_stem_and_concat.R")
+```
+
+
+```{r}
+# Define file paths with job-specific suffixes
+job_specific_suffix <- "_full_"
+path_input_crs <- paste0("./Data/intermediate/crs02 new columns", job_specific_suffix, year(Sys.Date()), ".feather")
+path_output_intermediate_crs <- paste0("./Data/intermediate/crs03_intermediate_", job_specific_suffix, year(Sys.Date()), ".feather")
+path_output_crs <- paste0("./Data/intermediate/crs03", job_specific_suffix, year(Sys.Date()), ".feather")
+
+# Load the data from the feather file
+start <- Sys.time()
+df_crs_full <- read_feather(path_input_crs)
+
+# Print loading time
+print("Load file:")
+print_time_diff(start)
+```
+
+
+update: From the next block, here we filter out all the duplications and only focus on non-duplicated ones in following analysis
+
+```{r}
+# Convert project titles to lower case
+df_crs_full <- df_crs_full %>%
+  mutate(projecttitle_lower = tolower(projecttitle))
+
+# Select relevant columns and remove duplicates
+df_crs_reduced <- df_crs_full %>%
+  select(title_id, projecttitle_lower, language_title) %>%
+  filter(!duplicated(title_id))
+
+langs <- c("en", "fr", "es", "de")
+print_time_diff(start)
+```
+
+
+
+```{r}
+# Process data for each language
+start <- Sys.time()
+list_df_crs <- list()
+for (i in 1:length(langs)) {
+  lang2analyse <- langs[i]
+  source(file = "./functions/03.2 detecting for each language.R")
+  list_df_crs[[i]] <- df_crs
+}
+df_crs <- bind_rows(list_df_crs)
+rm(list_df_crs)
+gc()
+beep()
+print_time_diff(start)
+```
+
+
+
+```{r}
+# Join the results back with the full dataset
+df_crs <- df_crs_full %>%
+  left_join(df_crs, by = "title_id") 
+
+# Save intermediate results
+df_crs %>% write_feather(path_output_intermediate_crs)
+```
+
+
+```{r}
+# Clean and transform data columns
+df_crs <- df_crs %>%
+  mutate(scb = (scb == 1), pop = (pop == 1)) %>%
+  mutate(across(scb:gen_rmnch2,  ~ replace_na(.x, F))) %>%
+  mutate(mining_ppcode = ifelse(is.na(mining_ppcode), F, mining_ppcode)) %>%
+  mutate(across(stat_title:mining_title, ~ replace_na(.x, F)))
+
+gc()
+```
+
+
+```{r}
+# Add missing columns manually
+path_add_crs <- paste0("./Data/intermediate/crs02_int_clean_titles", job_specific_suffix, year(Sys.Date()), ".feather")
+longdescriptionTable<- read_feather(path_add_crs)%>%select(process_id,longdescription)
+
+df_crs <- df_crs %>% 
+  left_join(longdescriptionTable,by="process_id")%>%
+  mutate(stat_manual_additions = grepl("National Agricultural Statistics Service|Integrated Household Survey|National Panel Survey|Living Standards Measurement Study Office|Core Agricultural and Rural Data Survey|Agricultural Integrated Survey", 
+                              longdescription, 
+                              T)) 
+
+# Create new columns based on conditions
+df_crs <- df_crs %>%
+  mutate(stat_title_ex_mining = (stat_title | stat_manual_additions) & !mining_title) %>%
+  mutate(text_detection_wo_mining = stat_title_ex_mining) %>%
+  mutate(stat_title_ppcode = (stat_title_ex_mining | scb) & (!mining_ppcode)) %>%
+  mutate(gen_markers_title = gen_donor | gen_ppcode | gen_title | gen_marker2 | gen_channel | gen_agency | gen_sdg | gen_rmnch2)
+
+```
+
+
+
+```{r}
+# Save final results
+df_crs %>% write_feather(path_output_crs)
+print_time_diff(start)
+```
+

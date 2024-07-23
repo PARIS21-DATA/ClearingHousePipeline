@@ -160,6 +160,8 @@ beep()
 df_crs_raw <- read_feather(path_input_crs)
 print_time_diff(start)
 
+df_crs_raw$db_ref %>% unique %>% length
+
 # 3.1 Select and filter required columns for SDG markers
 df_crs <- df_crs_raw %>% 
   select(db_ref, sdgfocus)
@@ -303,7 +305,4 @@ beep(2)
 
 ```
 
-```{r}
-df_crsr<-read_feather(path_input_markers)
-```
 
